@@ -1,0 +1,160 @@
+.data
+LAYERS: .space 400 #global variables stored in data segment
+#to be seen by all functions, 100 words for each label
+X: .space 400
+W: .space 400
+B: .space 400
+.text
+#loading parameters as shown from neural network
+main:
+la $s0, X #pseudoinstruction load address
+la $s1, W
+la $s2, B
+la $s3, LAYERS
+addi $t0, $zero, 3 #number of layers
+#PREPARING LAYERS MATRIX
+sw $t0, 0($s3) #t0 equal to inputs of first layer, LAYERS[0] = 3
+addi $t1, $zero, 2
+sw $t1, 4($s3)
+addi $t1, $zero, 1
+sw $t1, 8($s3)
+#PREP BIAS MATRIX
+sw $zero, 0($s2)
+sw $zero, 4($s2)
+sw $zero, 8($s2) #it might be initialised with
+#zeros so the instructions may not have been needed
+#PREP WEIGHTS
+addi $t1, $zero, -2
+sw $t1, 0($s1)
+addi $t1, $zero, 5
+sw $t1, 4($s1)
+addi $t1, $zero, 3
+sw $t1, 8($s1)
+addi $t1, $zero, -5
+sw $t1, 12($s1)
+addi $t1, $zero, 2
+sw $t1, 16($s1)
+addi $t1, $zero, 2
+sw $t1, 20($s1)
+addi $t1, $zero, 1
+sw $t1, 24($s1)
+sw $t1, 28($s1)
+#PREP X
+addi $t1, $zero, 1 #x_0 = 01
+sw $t1, 0($s0)
+addi $t1, $zero, 50
+sw $t1, 4($s0)
+addi $t1, $zero, 20
+sw $t1, 8($s0)
+add $a0, $zero, $t0 #number of layers
+jal recognised_digit
+add $v1, $v0, $zero #digit stored here
+li $v0, 10
+syscall
+#ΜΕΡΟΣ Β
+neuron: add $t0, $a3, $zero #sum = bias
+add $t1, $zero, $zero #i = 0
+LOOP: beq $t1, $a2, NEXT #if i = n go to next
+lw $t2, 0($a0) #w[i]
+lw $t3, 0($a1) #x[i]
+mul $t4, $t2, $t3 #w[i]*x[i]
+add $t0, $t4, $t0
+addi $a0, $a0, 4 #integers are 32 bit words
+addi $a1, $a1, 4
+addi $t1, $t1, 1 #i++
+j LOOP
+NEXT: slt $t5, $t0, $zero #if sum<0 set t5 = 1,
+#if not then #set t5 = 0
+beq $t5, $zero, END #if sum>=0 go to end
+add $t0, $zero, $zero #Apply Activation Function (ReLU)
+END: add $v0, $t0, $zero #store result
+jr $ra
+#ΜΕΡΟΣ Γ
+network: addi $sp, $sp, -40
+#calle save regs
+sw $s1, 0($sp)
+sw $s2, 4($sp)
+sw $s3, 8($sp)
+sw $ra, 12($sp) #caller save because
+#of neuron function called
+#t0 layer, caller save all temporaries
+#$t1 j
+#$t2 n_in
+#$t3 n_out
+#t4, offset
+add $t4, $zero, $zero #offset = 0
+addi $t0, $zero,1 #layer = 1
+LOOP1: beq $t0, $a0, END2 #if layer = num_layers go to end
+lw $t5, 0($s3)
+add $t2, $zero, $t5 #the address in $s3 is one
+#step back, n_in = LAYERS[layer-1]
+addi $s3, $s3, 4 #catching up to layer
+lw $t5, 0($s3)
+add $t3, $zero, $t5 #n_out = LAYERS[layer]
+add $t1, $zero, $zero #establishing j=0
+add $t6, $t4, $t2 #offset+n_in is not affected by j,
+#no need to do the sum for every iteration
+LOOP2:beq $t1, $t3, NEXT1
+#preparing the arguments for the next frame
+sw $t0, 16($sp) #layer, caller save all temporaries
+sw $t1, 20($sp) #j
+sw $t2, 24($sp) #n_in
+sw $t3, 28($sp) #n_out
+sw $t4, 32($sp) #offset
+sw $a0, 36($sp) #num_layers
+add $a0, $s1, $zero
+sll $t5, $t4, 2 #input is pointing to int
+add $a1, $s0, $t5 #input[offset]
+add $a2, $t2, $zero
+lw $t5, 0($s2)
+add $a3, $t5, $zero #*bptr
+jal neuron
+#loading the registers that are used in this function
+#and possibly could have been changed by the callee
+lw $t0, 16($sp)
+lw $t1, 20($sp)
+lw $t2, 24($sp)
+lw $t3, 28($sp)
+lw $t4, 32($sp)
+lw $a0, 36($sp) #for loop1
+add $t6, $t6, $t1 #offset+n_in+j
+sll $t5, $t6, 2
+add $t5, $s0, $t5
+sw $v0, 0($t5) #input[offset+n_in+j] = sum from neuron
+sll $t5, $t2,2
+add $s1, $s1, $t5 #wptr += n_in
+addi $s2, $s2, 4 #bptr +=1
+addi $t1, $t1, 1 #j++
+j LOOP2
+NEXT1: add $t4, $t4, $t2 # offset += n_in
+addi $t0, $t0, 1
+j LOOP1
+END2: sll $t5, $t4, 2
+add $t5, $t5, $s0
+lw $t5, 0($t5) #input[offset]
+add $v0, $t5, $zero
+lw $s1, 0($sp) #calle save regs
+lw $s2, 4($sp)
+lw $s3, 8($sp)
+lw $ra, 12($sp)
+addi $sp, $sp, 40 #pop stack frame
+jr $ra
+#ΜΕΡΟΣ Δ
+#returns digit
+recognised_digit:
+addi $sp, $sp, -4
+sw $ra, 0($sp)
+jal network
+lw $ra, 0($sp)
+slti $t0, $v0, 230
+beq $t0, $zero, ELSE #if v0>=230 then go to else
+add $s4, $zero, $v0 #stored sum here
+addi $v0, $zero, 1
+addi $sp, $sp,4
+jr $ra
+ELSE:
+add $s4, $zero, $v0 #stored sum here, in this
+#case 443 or 0x1bb as shown in SPIM
+addi $v0, $zero, 7
+addi $sp, $sp,4
+jr $ra
